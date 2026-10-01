@@ -1,78 +1,140 @@
 # Phoenix Mechano – targoncakezelő felület
 
-Vite + React felület a 6 targonca kezeléséhez. A targoncákon Raspberry Pi fut,
-ezek írják a pozíciókat a MySQL-be; a hozzájuk tartozó oldal a `/targonca/:id`
-útvonalon kap helyet.
+A targoncákon Raspberry Pi fut, ezek írják a pozíciókat a MySQL-be. A felület
+egy légifotóra rajzolja rá az adott gép adott napi útvonalát.
+
+- backend: `app.py` – egy fájl, Flask + MySQL
+- frontend: Vite + React, a térkép Leaflet
 
 ## Indítás
 
-Két terminál kell, mert a böngésző nem tud közvetlenül MySQL-hez kapcsolódni:
-
 ```
 npm install
-npm run server     # adatbázis-API, 3001-es port
-npm run dev        # felület, 5173-as port
+pip install -r requirements.txt
+python app.py
 ```
 
-A dev szerver a hálózaton is hallgat (`host: true`), tehát tabletről is
-megnyitható a gép IP-címén. A `/api` kéréseket a Vite automatikusan a 3001-es
-portra továbbítja.
-
-## Adatbázis beállítása
-
-A kapcsolat a projekt gyökerében lévő `.env` fájlból jön – minta: `.env.example`.
-Ugyanazokat az értékeket kell beírni, amikkel a Workbenchben belépsz:
+Ennyi. Az `app.py` elindítja az API-t **és** a Vite dev szervert is, majd
+kiírja a címeket:
 
 ```
-DB_HOST=127.0.0.1
-DB_USER=root
-DB_PASSWORD=...
-DB_NAME=targonca
-DB_TABLE=positions
+  API ........ http://localhost:5000
+  Felulet .... http://localhost:5173
+  Halozatrol . http://192.168.x.x:5173
+  Adatbazis .. root@127.0.0.1/forklift
 ```
 
-Utána az oszlopneveket kell a saját tábládhoz igazítani:
+A hálózati IP-t magától megtalálja, nem kell sehova beírni – tabletről ez a cím
+nyitható meg. Leállítás: `Ctrl+C` (a Vite is leáll vele).
 
+Ha csak az API kell: `python app.py --no-web`.
+
+## Beállítás
+
+Minden az `app.py` tetején van, egy helyen: a `DB` kapcsolat, a tábla
+névelőtagja, az oszlopnevek és a portok. Nincs `.env`, nincs config fájl.
+
+A gépek listáját nem kell karbantartani: a `forklifts()` a `SHOW TABLES`-ből
+szedi ki (`teszt3` → 3-as targonca), tehát ha új tábla keletkezik, magától
+megjelenik a főoldalon.
+
+## Adatbázis
+
+`forklift` adatbázis, **gépenként külön tábla**: `teszt1` … `teszt6`
+(a névminta `TABLE = "teszt{}"`, a `{}` helyére a gép száma kerül).
+
+| oszlop      | típus       | tartalom              |
+| ----------- | ----------- | --------------------- |
+| `id`        | int         | sorszám               |
+| `datum`     | varchar(20) | `2026-10-02`          |
+| `time`      | varchar(20) | `08:40:00`            |
+| `longitude` | double      | **szélesség** (46.9…) |
+| `latitude`  | double      | **hosszúság** (19.7…) |
+
+### A két koordináta fel van cserélve
+
+Az adatbázisban a `longitude` oszlopban van a szélesség, a `latitude`-ban a
+hosszúság. Ezt a régi `map.html` is így kezelte rajzoláskor
+(`const lat = parseFloat(p.lon)`), a távolságszámítás viszont nem cserélte
+vissza – így a kirajzolt útvonal jó volt, a megtett út viszont rosszul jött ki.
+
+Itt a szerver adja vissza mindkettőt helyesen. A csere két sor az `app.py`
+tetején:
+
+```python
+LAT = "longitude"
+LON = "latitude"
 ```
-COL_FORKLIFT=forklift_id   # melyik gép; ha nincs ilyen oszlop, hagyd üresen
-COL_X=x
-COL_Y=y
-```
 
-Az időt kétféle tárolás szerint tudja olvasni:
+Ha egyszer helyrerakjátok az oszlopneveket a táblában, csak ezt a kettőt kell
+visszacserélni.
 
-- `TIME_MODE=datetime` – egy DATETIME/TIMESTAMP oszlop van, ezt a `COL_TIME`
-  adja meg
-- `TIME_MODE=parts` – külön hónap / nap / óra / perc oszlop, ezeket a
-  `COL_MONTH`, `COL_DAY`, `COL_HOUR`, `COL_MINUTE` adja meg. Ilyenkor a táblában
-  nincs év, azt a `DATA_YEAR` pótolja.
+### Egyéb
 
-Hogy jól állnak-e a beállítások, ezzel ellenőrizhető:
+- `teszt1`-ben van egy `targonca_id` oszlop is (20800), a többiben nincs. Mivel
+  minden gépnek saját táblája van, a lekérdezés nem használja.
+- `datum` és `time` varchar, nem DATE/TIME. A szűrés emiatt szövegként megy –
+  a `YYYY-MM-DD` és a `HH:MM:SS` alaknál ez ugyanaz a sorrend, mint az időrend.
 
-```
-curl http://localhost:3001/api/health
-```
+A lekérdezés a `positions()` függvényben van – a munkahelyi kódot oda kell
+bemásolni. `{"ts", "lat", "lon"}` kulcsú elemekből álló listát kell
+visszaadnia, a program többi része erre épül.
+
+## A felületről
+
+- **Rajzolni csak az „Útvonal betöltése” gomb rajzol.** Ha a dátumot vagy az
+  időablakot átírod, a korábbi útvonal eltűnik – így sosem marad kint egy régi
+  lekérdezés eredménye a már átírt mezők mellett.
+- Csak azok a pontok kerülnek ki, amelyek az „Ettől – Eddig” órák közé esnek.
+- Az adat szórtan van a táblákban (teszt1–2: szept. 25., teszt3–4: okt. 2.,
+  teszt5–6: okt. 9.), ezért a dátummező megnyitáskor **arra a napra áll, ahol
+  van adat**: ha ma van, akkor a mai, különben a legutolsó ilyen nap.
+- Az időablak alapból `00:00–23:59`, hogy semmi ne maradjon ki.
+- Az „Ettől – Eddig” mezők mindig 0–24 órás alakot mutatnak. A natív
+  `<input type="time">` a böngésző nyelvét követi (angol böngészőn AM/PM-et
+  írna, és ezt a `lang` attribútum nem írja felül), ezért ezek saját mezők:
+  beírod a négy számjegyet, a kettőspont magától kerül a helyére, kilépéskor
+  pedig `HH:MM`-re igazítja magát. A dátummezőnél a natív naptár megmarad,
+  de a címke magyarul is kiírja a napot.
 
 ## Végpontok
 
-Mind `{ t, x, y }` alakú pontokat ad vissza; `t` helyi idő, időzóna-jelölés
-nélkül (`2026-09-22T08:14:00`).
+```
+/api/forklifts              a gépek listája (a teszt* táblákból)
+/api/days?forklift_id=3     mely napokon van adat
+/api/positions              ?forklift_id=3&date=2026-10-02&start_time=00:00&end_time=23:59
+```
+
+A `/api/positions` válasza:
+
+```json
+{
+  "forklift_id": 3,
+  "date": "2026-10-02",
+  "count": 5,
+  "distance_m": 350.8,
+  "points": [{ "ts": "08:10:00", "lat": 46.90835, "lon": 19.7162 }]
+}
+```
+
+## A térkép
+
+A légifotó a `public/map.png`, a sarkai:
 
 ```
-/api/health                             kapcsolat-ellenőrzés
-/api/forklifts/:id/positions?date=...   egy gép egy napi útvonala
-/api/forklifts/:id/latest               a legutolsó ismert pozíció
-/api/forklifts/:id/days                 mely napokon van adat
+bal felső:  46.90848, 19.71331
+jobb alsó:  46.90700, 19.71830
 ```
+
+Ez a két koordináta a `src/components/RouteMap.jsx`-ben van (`MAP_BOUNDS`).
 
 ## Felépítés
 
-- `server/config.js` – minden adatbázistól függő beállítás egy helyen
-- `server/positions.js` – a lekérdezések; innen jön a `{ t, x, y }` alak
-- `server/index.js` – az API, élesben a `dist/`-et is kiszolgálja
-- `src/data/forklifts.js` – a targoncák neve és területe
+- `app.py` – beállítások, MySQL, API, indító
 - `src/pages/Home.jsx` – géprács
-- `src/pages/ForkliftPage.jsx` – ide kerül az adott targonca kész felülete
+- `src/pages/ForkliftPage.jsx` – dátum/idő vezérlők, megtett út, térkép
+- `src/components/RouteMap.jsx` – a Leaflet térkép és az útvonal
+- `public/map.png` – a légifotó
 - `public/logo.png` – a cég logója (csere esetén a `Header.jsx`-ben és az
   `index.html` favicon sorában is át kell írni a fájlnevet)
 
@@ -80,13 +142,22 @@ nélkül (`2026-09-22T08:14:00`).
 
 - `1`–`6` billentyű a főoldalon: az adott targonca oldala egyből megnyílik
 - `Esc` a targonca oldalán: vissza a főoldalra
+- a pontok fölé húzva kiírja az időt
+
+## Tesztek
+
+```
+npm test
+```
+
+A felület tesztjei (vitest). Nem kell hozzá futó `app.py`, sem adatbázis –
+a `fetch` és a Leaflet mockolva van. Részletek: `test/README.md`.
 
 ## Éles futtatás
 
 ```
 npm run build
-npm start
+python app.py --no-web
 ```
 
-Ilyenkor egy process elég: a `server/index.js` a `dist/`-et is kiszolgálja,
-minden a 3001-es porton megy.
+Ilyenkor a Flask a `dist/`-et is kiszolgálja, minden az 5000-es porton megy.

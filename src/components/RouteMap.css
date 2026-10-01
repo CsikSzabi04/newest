@@ -1,0 +1,36 @@
+.route-map {
+  width: 100%;
+  min-height: 300px;
+  max-height: 760px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.route-map .leaflet-container {
+  background: var(--paper);
+  font: inherit;
+}
+
+.route-map .leaflet-bar a {
+  border-radius: 0;
+  color: var(--black);
+}
+
+.route-map .leaflet-bar a:hover {
+  background: #e9e9e9;
+}
+
+.route-map .leaflet-tooltip {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--black);
+  color: var(--white);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+
+.route-map .leaflet-tooltip-top::before {
+  border-top-color: var(--black);
+}

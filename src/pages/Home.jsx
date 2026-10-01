@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../components/Header.jsx'
-import { forklifts } from '../data/forklifts.js'
+import { useForklifts } from '../hooks/useForklifts.js'
 import { useClock } from '../hooks/useClock.js'
 import './Home.css'
 
@@ -14,6 +14,7 @@ function greeting(hour) {
 export default function Home() {
   const navigate = useNavigate()
   const now = useClock()
+  const { forklifts, error } = useForklifts()
 
   useEffect(() => {
     const onKey = (e) => {
@@ -23,9 +24,7 @@ export default function Home() {
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [navigate])
-
-  const hour = now.getHours()
+  }, [navigate, forklifts.length])
 
   return (
     <div className="page">
@@ -37,7 +36,7 @@ export default function Home() {
 
       <section className="hero">
         <h1>
-          {greeting(hour)}
+          {greeting(now.getHours())}
           <span className="hero-stop">.</span>
         </h1>
         <h1>
@@ -65,27 +64,36 @@ export default function Home() {
           <span>{forklifts.length} egység</span>
         </div>
 
-        <div className="grid">
-          {forklifts.map((f) => (
-            <button
-              key={f.id}
-              className="card"
-              onClick={() => navigate(`/targonca/${f.id}`)}
-            >
-              <span className="card-top">
-                <span className="card-no">{String(f.id).padStart(2, '0')}</span>
-                <span className="dot" />
-              </span>
-              <span className="card-name">{f.name}</span>
-              <span className="card-meta">{f.area}</span>
-              <span className="card-host"></span>
-            </button>
-          ))}
-        </div>
+        {error ? (
+          <div className="notice">
+            <strong>Nincs kapcsolat a szerverrel.</strong>
+            <span>{error}</span>
+          </div>
+        ) : (
+          <div className="grid">
+            {forklifts.map((f) => (
+              <button
+                key={f.id}
+                className="card"
+                onClick={() => navigate(`/targonca/${f.id}`)}
+              >
+                <span className="card-top">
+                  <span className="card-no">{String(f.id).padStart(2, '0')}</span>
+                  <span className="dot" />
+                </span>
+                <span className="card-name">{f.name}</span>
+                <span className="card-host"></span>
+              </button>
+            ))}
+          </div>
+        )}
 
-        <p className="hint">
-          Az <kbd>1</kbd> – <kbd>6</kbd> billentyűvel is nyitható a megfelelő gép.
-        </p>
+        {forklifts.length > 0 && (
+          <p className="hint">
+            Az <kbd>1</kbd> – <kbd>{forklifts.length}</kbd> billentyűvel is nyitható a
+            megfelelő gép.
+          </p>
+        )}
       </main>
     </div>
   )
